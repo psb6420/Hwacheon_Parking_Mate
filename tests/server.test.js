@@ -1,0 +1,34 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { randomUUID } from 'node:crypto';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { createServer } from '../server/index.js';
+const key='test-only-operator-key-at-least-32-chars';
+test('API authentication, concurrent capacity, idempotency and persistence',async()=>{
+ const dir=mkdtempSync(join(tmpdir(),'hpm-test-')); const dbPath=join(dir,'parking.sqlite');
+ let server=createServer({dbPath,adminKey:key,origins:['http://allowed.test']});
+ await new Promise(r=>server.listen(0,'127.0.0.1',r));
+ let base=`http://127.0.0.1:${server.address().port}`;
+ const call=async(path,method='GET',body,auth=false)=>fetch(base+path,{method,headers:{'Content-Type':'application/json',...(auth?{Authorization:`Bearer ${key}`}:{})},body:body?JSON.stringify(body):undefined});
+ try {
+  assert.equal((await fetch(base+'/api/lots',{headers:{Origin:'http://bad.test'}})).status,403);
+  assert.equal((await call('/api/admin')).status,401);
+  assert.equal((await call('/api/lots/P2','PATCH',{occupied:119,status:'open'})).status,401);
+  assert.equal((await call('/api/lots/P2','PATCH',{occupied:119,status:'open'},true)).status,200);
+  const attempts=await Promise.all(Array.from({length:8},()=>call('/api/reservations','POST',{lotId:'P2',people:3,clientId:randomUUID()})));
+  assert.equal(attempts.filter(r=>r.status===201).length,1);
+  const ticket=await attempts.find(r=>r.status===201).json();
+  assert.equal((await call('/api/checkin','POST',{token:ticket.token})).status,401);
+  assert.equal((await call('/api/checkin','POST',{token:ticket.token},true)).status,200);
+  assert.equal((await call('/api/checkin','POST',{token:ticket.token},true)).status,400);
+  const data=await (await call('/api/lots')).json(); assert.equal(data.lots[1].available,0);
+  assert.equal(JSON.stringify(data).includes(ticket.token),false);
+  await new Promise(r=>server.close(r));
+  server=createServer({dbPath,adminKey:key}); await new Promise(r=>server.listen(0,'127.0.0.1',r)); base=`http://127.0.0.1:${server.address().port}`;
+  assert.equal((await (await call('/api/ticket','POST',{token:ticket.token})).json()).status,'checked_in');
+  assert.equal((await call('/api/checkout','POST',{token:ticket.token},true)).status,200);
+  assert.equal((await (await call('/api/lots')).json()).lots[1].available,1);
+ } finally { await new Promise(r=>server.close(r)); rmSync(dir,{recursive:true,force:true}); }
+});
