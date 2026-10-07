@@ -1,3 +1,4 @@
+import { entryStatus, distance } from './location.js';
 export const HOLD_MS = 30 * 60 * 1000;
 export const STALE_MS = 15 * 60 * 1000;
 export function expire(state, now = Date.now()) {
@@ -28,9 +29,19 @@ export function reserve(state, { lotId, clientId, people, token }, now = Date.no
   if (!Number.isInteger(people) || people < 1 || people > 9) throw new Error('탑승 인원은 1~9명으로 입력해 주세요.');
   if (state.reservations.some(r => r.clientId === clientId && ['reserved', 'checked_in'].includes(r.status))) throw new Error('이 기기에 진행 중인 예약이 있습니다. 내 예약을 확인해 주세요.');
   const lot = lotsView(state, now).find(l => l.id === lotId);
-  if (!lot || lot.status !== 'open' || lot.available < 1 || lot.stale) throw new Error('예약 가능한 자리가 없습니다. 최신 정보를 확인하고 다른 주차장을 선택해 주세요.');
+  if (!lot || lot.status !== 'open' || lot.available < 1 || lot.stale) throw new Error('배정 가능한 자리가 없습니다. 최신 주차 정보를 확인해 주세요.');
   const r = { token, lotId, clientId, people, status: 'reserved', createdAt: now, expiresAt: now + HOLD_MS };
   state.reservations.push(r);
+  return r;
+}
+export function autoReserve(state, {position,clientId,people,token,accessible=false}, now=Date.now()) {
+  const gate=entryStatus(position,now);
+  if (!gate.allowed) throw new Error(gate.message);
+  const candidates=lotsView(state,now).filter(l=>l.status==='open' && !l.stale && l.available>0 && (!accessible || l.accessible));
+  const ranked=candidates.map(l=>({...l,score:0.6*l.available/l.capacity+0.4/(1+distance(position,l)/1000)})).sort((a,b)=>b.score-a.score || a.id.localeCompare(b.id));
+  if (!ranked.length) throw new Error('현재 배정 가능한 구역이 없습니다. 잠시 후 다시 확인해 주세요.');
+  const r=reserve(state,{lotId:ranked[0].id,clientId,people,token},now);
+  r.assignment='automatic'; r.entryVerifiedAt=now;
   return r;
 }
 export function transition(state, token, action, now = Date.now()) {

@@ -1,5 +1,5 @@
 import { CATALOG } from './catalog.js';
-import { expire, lotsView, reserve, transition, updateLot } from './domain.js';
+import { expire, lotsView, autoReserve, transition, updateLot } from './domain.js';
 const KEY = 'hwacheon-parking-v1';
 const initial = () => ({ lots: CATALOG.map(l => ({ ...l, updatedAt: Date.now() })), reservations: [], events: [] });
 export function readLocal() {
@@ -28,8 +28,8 @@ async function mutate(fn) {
 }
 export const service = {
   async lots() { return isRemote ? request('/api/lots') : { lots: lotsView(readLocal()), demo: true }; },
-  async reserve(lotId, people) {
-    return isRemote ? request('/api/reservations', 'POST', { lotId, people, clientId }) : mutate(s => reserve(s, { lotId, people, clientId, token: crypto.randomUUID() }));
+  async reserveAuto(position, people, accessible = false) {
+    return isRemote ? request('/api/reservations', 'POST', { position, people, accessible, clientId }) : mutate(s => autoReserve(s, { position, people, accessible, clientId, token: crypto.randomUUID() }));
   },
   async ticket(token) {
     if (isRemote) return request('/api/ticket', 'POST', { token });

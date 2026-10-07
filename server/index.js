@@ -5,7 +5,7 @@ import { mkdirSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { CATALOG } from '../src/catalog.js';
-import { expire, lotsView, reserve, transition, updateLot } from '../src/domain.js';
+import { expire, lotsView, autoReserve, transition, updateLot } from '../src/domain.js';
 
 export function createServer({ dbPath = ':memory:', adminKey, origins = [] } = {}) {
   if (!adminKey || adminKey.length < 32) throw new Error('ADMIN_KEY must contain at least 32 characters.');
@@ -65,7 +65,8 @@ export function createServer({ dbPath = ':memory:', adminKey, origins = [] } = {
       if (req.method === 'GET' && path === '/api/admin') return send(200, transaction(s => ({ events: s.events })));
       if (req.method === 'POST' && path === '/api/reservations') {
         if (typeof body.clientId !== 'string' || !/^[\w-]{20,80}$/.test(body.clientId)) return send(400, { error: '기기 식별자가 올바르지 않습니다.' });
-        return send(201, transaction(s => reserve(s, { ...body, token: randomUUID() })));
+        if (body.accessible !== undefined && typeof body.accessible !== 'boolean') return send(400, { error: '보행 편의 조건이 올바르지 않습니다.' });
+        return send(201, transaction(s => autoReserve(s, { position: body.position, people: body.people, accessible: body.accessible, clientId: body.clientId, token: randomUUID() })));
       }
       if (req.method === 'POST' && path === '/api/ticket') {
         const ticket = transaction(s => s.reservations.find(r => r.token === body.token));
