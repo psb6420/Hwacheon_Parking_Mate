@@ -10,3 +10,6 @@ h1,h2,h3{word-break:keep-all}
 @media(max-width:700px){.arrival-panel{grid-template-columns:1fr;padding:20px;gap:15px}.arrival-panel h2{font-size:21px}.arrival-panel p{font-size:12px}.arrival-note{grid-column:1}.navigation-panel{padding:18px}#navigation-map{height:330px}.nav-metrics{gap:16px}}
 
 .preview-option{padding:12px;border:1px solid #ead9a6;border-radius:10px;background:#fff7df;color:#775d20!important}.preview-option input{flex-shrink:0}
+
+.ticket-layout>.navigation-panel{grid-column:1/-1;min-width:0}.navigation-panel h2{font-size:21px}.navigation-panel .leaflet-tooltip{font-size:11px}
+@media(max-width:900px){.ticket-layout{grid-template-columns:minmax(0,1fr);gap:16px}.ticket-aside{padding:20px 5px}}
