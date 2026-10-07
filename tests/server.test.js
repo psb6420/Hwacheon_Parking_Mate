@@ -20,7 +20,7 @@ test('API authentication, concurrent capacity, idempotency and persistence',asyn
   for(const id of ['P1','P3','P4']) assert.equal((await call(`/api/lots/${id}`,'PATCH',{occupied:0,status:'closed'},true)).status,200);
   const position={lat:38.1034,lng:127.7041,accuracy:10,timestamp:Date.now()};
   assert.equal((await call('/api/reservations','POST',{lotId:'P2',people:3,clientId:randomUUID()})).status,400);
-  assert.equal((await call('/api/reservations','POST',{position:{...position,lat:37.88},people:3,clientId:randomUUID()})).status,400);
+  assert.equal((await call('/api/reservations','POST',{preview:true,position:{...position,lat:37.88},people:3,clientId:randomUUID()})).status,400);
   assert.equal((await call('/api/reservations','POST',{position:{...position,timestamp:Date.now()-60000},people:3,clientId:randomUUID()})).status,400);
   const attempts=await Promise.all(Array.from({length:8},()=>call('/api/reservations','POST',{position,lotId:'P4',people:3,clientId:randomUUID()})));
   assert.equal(attempts.filter(r=>r.status===201).length,1);

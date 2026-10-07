@@ -1,4 +1,5 @@
 import L from 'leaflet';
+import { isPreview, setPreviewMode } from './store.js';
 import { entryStatus, FRESH_MS, distance } from './location.js';
 import { fetchRoute, guidance, instruction } from './navigation.js';
 
@@ -9,7 +10,7 @@ let navLot, navToken, navRoute, navMap, routeLayer, locationMarker, navigating=f
 let hooks;
 export function configureMobility(options) { hooks=options; }
 export function arrivalPanel() {
-  return `<section class="arrival-panel"><div><p class="eyebrow">ARRIVE · AUTO MATCH · QR</p><h2>화천군에 도착하면, 주차장 자동 배정</h2><p>현재 위치와 주차 여유를 함께 고려합니다. 주차장은 직접 선택하지 않습니다.</p><p id="entry-status" class="location-status" role="status">${escape(message)}</p></div><form id="auto-form"><label class="field">탑승 인원<select name="people" ${armed?'disabled':''}>${Array.from({length:9},(_,i)=>`<option value="${i+1}" ${people===i+1?'selected':''}>${i+1}명</option>`).join('')}</select></label><label class="checkbox"><input name="accessible" type="checkbox" ${accessible?'checked':''} ${armed?'disabled':''}> 보행 편의 구역 필요</label><label class="checkbox"><input name="consent" type="checkbox" required ${armed?'checked disabled':''}> 위치 확인 및 시연용 자동 배정에 동의</label><button class="primary wide" ${armed || issuing?'disabled':''}>${armed?'화천군 진입 확인 중':'위치 확인 · 자동 배정 시작'}</button>${watch!==undefined?'<button type="button" class="text-btn" data-mobility="stop">위치 확인 중지</button>':''}</form><p class="note arrival-note">화천군 밖에서는 QR을 발급하지 않습니다. 이 페이지가 열린 동안 위치를 확인하며, 위치 좌표는 저장하지 않습니다. 안내 시작 시 현재 위치와 배정 구역 좌표가 OSRM 경로 서비스에 전달됩니다. 경계·GPS 오차가 있으면 군 안쪽에서 재확인합니다.</p></section>`;
+  return `<section class="arrival-panel"><div><p class="eyebrow">ARRIVE · AUTO MATCH · QR</p><h2>${isPreview?'확인용 주차장 자동 배정':'화천군에 도착하면, 주차장 자동 배정'}</h2><p>${isPreview?'확인용 모드 · 화천 시범 위치로 자동 배정합니다. 실제 GPS는 확인하지 않습니다.':'현재 위치와 주차 여유를 함께 고려합니다. 주차장은 직접 선택하지 않습니다.'}</p><p id="entry-status" class="location-status" role="status">${escape(message)}</p></div><form id="auto-form"><label class="field">탑승 인원<select name="people" ${armed?'disabled':''}>${Array.from({length:9},(_,i)=>`<option value="${i+1}" ${people===i+1?'selected':''}>${i+1}명</option>`).join('')}</select></label><label class="checkbox"><input name="accessible" type="checkbox" ${accessible?'checked':''} ${armed?'disabled':''}> 보행 편의 구역 필요</label><label class="checkbox preview-option"><input id="preview-mode" type="checkbox" ${isPreview?'checked':''} ${issuing?'disabled':''}> 확인용: 화천군 밖에서도 배정받기</label><label class="checkbox"><input name="consent" type="checkbox" required ${armed?'checked disabled':''}> ${isPreview?'확인용 자동 배정에 동의':'위치 확인 및 시연용 자동 배정에 동의'}</label><button class="primary wide" ${armed || issuing?'disabled':''}>${armed?'화천군 진입 확인 중':isPreview?'확인용 자동 배정 · QR 발급':'위치 확인 · 자동 배정 시작'}</button>${watch!==undefined?'<button type="button" class="text-btn" data-mobility="stop">위치 확인 중지</button>':''}</form><p class="note arrival-note">${isPreview?'확인용 QR과 잔여면은 일반 모드와 별도로 관리합니다. 위치 권한 없이 체험할 수 있으며, 체크를 해제하면 화천군 진입 조건이 다시 적용됩니다.':'화천군 밖에서는 QR을 발급하지 않습니다. 이 페이지가 열린 동안 위치를 확인하며, 위치 좌표는 저장하지 않습니다. 경계·GPS 오차가 있으면 군 안쪽에서 재확인합니다.'} 안내 시작 시 현재 위치와 배정 구역 좌표가 OSRM 경로 서비스에 전달됩니다.</p></section>`;
 }
 export function navigationPanel(ticket, lot) {
   if(!lot || ticket?.status!=='reserved') return '';
@@ -93,12 +94,25 @@ export function mountMobility(ticket, lot) {
   navMap?.remove(); navMap=null;
   if(navigating && navRoute && lot) { drawRoute(); updateNavigation(); }
 }
-document.addEventListener('submit',e=>{
+document.addEventListener('change',e=>{
+  if(e.target.id!=='preview-mode' || issuing)return;
+  armed=false; stopNavigation(); stopWatch(); setPreviewMode(e.target.checked);
+  updateMessage(isPreview?'확인용 모드 · 위치 권한 없이 자동 배정과 QR을 확인할 수 있습니다.':'위치 확인을 시작하면 화천군 진입 후 QR을 자동 발급합니다.');
+  hooks.modeChanged();
+});
+document.addEventListener('submit',async e=>{
   if(e.target.id!=='auto-form')return;
   e.preventDefault(); if(issuing)return;
   const data=new FormData(e.target); people=Number(data.get('people')); accessible=data.has('accessible');
   if(!data.has('consent'))return;
   if(hooks.active()) { hooks.toast('진행 중인 QR이 있습니다. 내 QR 예약을 확인해 주세요.'); return; }
+  if(isPreview) {
+    issuing=true; hooks.render();
+    try { const r=await hooks.reserve(null,people,accessible); updateMessage('확인용 QR 자동 배정 완료 · 실제 진입 확인 없음'); await hooks.assigned(r); }
+    catch(error) { updateMessage(error.message); hooks.toast(error.message); }
+    finally { issuing=false; hooks.render(); }
+    return;
+  }
   try { armed=true; updateMessage('위치 권한과 최신 GPS를 확인합니다. 화천군 밖에서는 진입을 기다립니다.'); ensureWatch(); hooks.render(); }
   catch(error) { armed=false; updateMessage(error.message); hooks.toast(error.message); }
 });
